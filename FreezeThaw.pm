@@ -2,6 +2,22 @@
 
 FreezeThaw - converting Perl structures to strings and back.
 
+=head1 SYNOPSIS
+
+  use FreezeThaw qw(freeze thaw cmpStr safeFreeze cmpStrHard);
+  $string = freeze $data1, $data2, $data3;
+  ...
+  ($olddata1, $olddata2, $olddata3) = thaw $string;
+  if (cmpStr($olddata2,$data2) == 0) {print "OK!"}
+
+=head1 DESCRIPTION
+
+Converts data to/from stringified form, appropriate for
+saving-to/reading-from permanent storage.
+
+Deals with objects, circular lists, repeated appearence of the same
+refence. Does not deal with overloaded I<stringify> operator yet.
+
 =head1 EXPORT
 
 =over 12
@@ -15,14 +31,6 @@ None.
 C<freeze thaw cmpStr cmpStrHard safeFreeze>.
 
 =back
-
-=head1 SYNOPSIS
-
-  use FreezeThaw qw(freeze thaw cmpStr safeFreeze cmpStrHard);
-  $string = freeze $data1, $data2, $data3;
-  ...
-  ($olddata1, $olddata2, $olddata3) = thaw $string;
-  if (cmpStr($olddata2,$data2) == 0) {print "OK!"}
 
 =head1 User API
 
@@ -283,6 +291,8 @@ sub getref {
 
 sub freezeString {$string .= "\$" . length($_[0]) . '|' . $_[0]}
 
+sub freezeNumber {$string .= $_[0] . '|'}
+
 sub thawString {	# Returns array of a string and offset of rest 
   substr($string, $_[0]) =~ /^\$(\d+)\|/ or confess "Wrong format of frozen string: " . substr($string, $_[0]);
   length($string) - $_[0] > length($1) + 1 + $1 
@@ -348,12 +358,19 @@ sub freezeScalar {
   }
   # Die if a) repeated prohibited, b) met, c) not explicitely requested to ingore.
   confess "Repeated reference met when prohibited" 
-    if $norepeated && !$_[2] && $count{"$_[0]"};
-  if (!$_[2]) {
-    $address{$_[0]} = @seen, push(@seen, $_[0]) 
-      if $count{"$_[0]"} && $count{"$_[0]"} == 1;
-    $string .= "<$address{$_[0]}|", return # &freezeString($address{$_[0]}) 
-      if $count{"$_[0]"}++;
+    if $norepeated && !$_[2] && defined $count{"$_[0]"};
+  if ($secondpass and !$_[2]) {
+    $string .= "<$address{$_[0]}|", return
+      if defined $count{"$_[0]"} and $count{"$_[0]"} > 1;
+  } elsif (!$_[2]) {
+    # $count{"$_[0]"} is defined if we have seen it on this pass.
+    $address{$_[0]} = @multiple, push(@multiple, $_[0]) 
+      if defined $count{"$_[0]"} and not exists $address{$_[0]};
+    # This is for debugging and shortening thrown-away output (also
+    # internal data in arrays and hashes is not duplicated).
+    $string .= "<$address{$_[0]}|", ++$count{"$_[0]"}, return
+      if defined $count{"$_[0]"};
+    ++$count{"$_[0]"};
   }
   return &freezeArray if $ref eq ARRAY;
   return &freezeHash if $ref eq HASH;
@@ -375,8 +392,34 @@ sub freezeScalar {
   $string .= '>';
   local $norepeated = $norepeated;
   local $noCache = $noCache;
-  &freezeScalar( ref $_[0] );
+  freezePackage(ref $_[0]);
   $_[0]->Freeze($cooky);
+}
+
+sub freezePackage {
+  my $packageid = $seen_packages{$_[0]};
+  if (defined $packageid) {
+    $string .= ')';
+    &freezeNumber( $packageid );
+  } else {
+    $string .= '>';
+    &freezeNumber( $seen_packages );
+    &freezeScalar( $_[0] );
+    $seen_packages{ $_[0] } = $seen_packages++;
+  }
+}
+
+sub thawPackage {		# First argument: offset
+  my $key = substr($string,$_[0],1);
+  my ($get, $rest, $id);
+  ($id, $rest) = &thawNumber($_[0] + 1);
+  if ($key eq ')') {
+    $get = $seen_packages{$id};
+  } else {
+    ($get, $rest) = &thawString($rest);
+    $seen_packages{$id} = $get;
+  }
+  ($get, $rest);
 }
 
 # First argument: offset; Optional other: index in the @uninit array
@@ -404,7 +447,7 @@ sub thawScalar {
     my ($off,$end) = &thawNumber ($_[0]+1);
     ($uninit[$off],$end);
   } elsif ($key eq '>' or $key eq '{' or $key eq '}') {
-    my ($package,$rest) = &thawString( $_[0]+1 );
+    my ($package,$rest) = &thawPackage( $_[0]+1 );
     my $cooky = bless \$rest, FreezeThaw::TCooky;
     local $uninitOK = $uninitOK;
     local $unsafe = $unsafe;
@@ -440,13 +483,16 @@ sub freezeEmpty {		# Takes a type, freezes ref to empty object
     $cache;
   } else {
     $string .= "{"; 
-    freezeString ref $_[0];
+    freezePackage ref $_[0];
     $_[0]->FreezeEmpty($cooky);
   }
 }
 
 sub freeze {
-  local @seen;
+  local @multiple;
+  local %seen_packages;
+  local $seen_packages = 0;
+  local %seen_packages;
 #  local @seentypes;
   local %count;
   local %address;
@@ -454,42 +500,52 @@ sub freeze {
   local $unsafe;
   local $noCache;
   local $cooky = bless \$cooky, FreezeThaw::FCooky; # Just something fake
+  local $secondpass;
   freezeScalar(\@_);
-  if (@seen) {
+  if (@multiple) {
     # Now repeated structures are enumerated with order of *second* time
     # they appear in the what we freeze.
     # What we want is to have them enumerated with respect to the first time
-    $string = '';		# Start again
-    @seen = ();
-    for (keys %count) {
-      $count{$_} = undef if $count{$_} <= 1; # As at start
-      $count{$_} = 1 if $count{$_}; # As at start
-    }
-    freezeScalar(\@_);
+####    $string = '';		# Start again
+####    @multiple = ();
+####    %address = ();
+####    for (keys %count) {
+####      $count{$_} = undef if $count{$_} <= 1; # As at start
+####      $count{$_} = 0 if $count{$_}; # As at start
+####    }
+####    $seen_packages = 0;
+####    %seen_packages = ();
+####    freezeScalar(\@_);
     # Now repeated structures are enumerated with order of first time
     # they appear in the what we freeze
-    my $oldstring = $string;
+####    my $oldstring = substr $string, 4;
     $string = 'FrT;!'; # Start again
-    freezeScalar($#seen);
+    $seen_packages = 0;
+    %seen_packages = ();	# XXXX We reshuffle parts of the
+                                # string, so the order of packages may
+                                # be wrong...
+    freezeNumber($#multiple);
     {
       my @cache;		# Force different values for different
                                 # empty objects.
-      foreach (@seen) {
+      foreach (@multiple) {
 	push @cache, freezeEmpty $_;
       }
     }
-    for (keys %count) {
-      $count{$_} = undef 
-	if !(defined $count{$_}) or $count{$_} <= 1; # As at start
-    }
-    # $string .= '@' . @seen . '|';
-    for (@seen) {
+#    for (keys %count) {
+#      $count{$_} = undef 
+#	if !(defined $count{$_}) or $count{$_} <= 1; # As at start
+#    }
+    # $string .= '@' . @multiple . '|';
+    $secondpass = 1;
+    for (@multiple) {
       freezeScalar($_,0,1,1), next if defined $Empty{ref $_};
       $string .= "}"; 
-      freezeString ref $_;
+      freezePackage ref $_;
       $_->FreezeInstance($cooky);
     }
-    $string .= $oldstring;
+####    $string .= $oldstring;
+    freezeScalar(\@_);
   }
   return "FrT;?\$" . length($lock) . "|" . $lock . substr $string, 4
     if $unsafe;
@@ -523,6 +579,7 @@ sub copyContents {  # Given two references, copies contents of the
 sub thaw {
   confess "thaw requires one argument" unless @_ ==1;
   local $string = shift;
+  local %seen_packages;
   my $initoff = 0;
   #print STDERR "Thawing `$string'", substr ($string, 0, 4), "\n";
   if (substr($string, 0, 4) ne 'FrT;') {
@@ -537,10 +594,15 @@ sub thaw {
     confess "The lock in frozen data does not match the key" 
       unless $key eq $lock;
   }
-  local @seen;
+  local @multiple;
   local $uninitOK = 1;		# The methods can change it.
   my $repeated = substr($string,$unsafe,1) eq '!' ? 1 : 0;
-  my ($res, $off) = thawScalar($repeated + $unsafe);
+  my ($res, $off);
+  if ($repeated) {
+    ($res, $off) = thawNumber($repeated + $unsafe);
+  } else {
+    ($res, $off) = thawScalar($repeated + $unsafe);
+  }
   my $cooky = bless \$off, FreezeThaw::TCooky;
   if ($repeated) {
     local @uninit;
@@ -574,7 +636,7 @@ sub cmpStr {
 
 sub cmpStrHard {
   confess "Compare requires two arguments" unless @_ == 2;
-  local @seen;
+  local @multiple;
 #  local @seentypes;
   local %count;
   local %address;

@@ -14,7 +14,7 @@ $FreezeThaw::string = '';
 $a1 = 'aa$a\nadf';
 FreezeThaw::freezeString $a1;
 ($aaa,$rest) = FreezeThaw::thawString 0;
-print ($aaa eq $a1 and $rest == length($FreezeThaw::string) ? 
+print($aaa eq $a1 and $rest == length($FreezeThaw::string) ? 
        "ok 1\n": "not ok 1\n");
 
 $FreezeThaw::string = '';
@@ -22,7 +22,7 @@ $FreezeThaw::string = '';
 $a2 = 'lk$s\nbgj';
 FreezeThaw::freezeScalar $a2;
 ($aaa,$rest) = FreezeThaw::thawString 0;
-print ($aaa eq $a2 and $rest == length($FreezeThaw::string) ? 
+print($aaa eq $a2 and $rest == length($FreezeThaw::string) ? 
        "ok 2\n": "not ok 2\n");
 
 
@@ -115,13 +115,12 @@ print $bb eq $aa ? "ok 13\n": "not ok 13\n";
 
 $a85 = \$a85;
 $aa = freeze $a85;
-#print "$aa\n";
+#print "#$aa\n";
 ($b) = thaw $aa;
 #dumpValue ($b);
 $bb = freeze $b;
-#print "$bb\n";
-print $bb eq $aa ? "ok 14\n": "not ok 14\n";
-print STDERR "# aa=`$aa'\n# bb=`$bb'\n# b=`$b'\n" if $bb ne $aa;
+#print "#$bb\n";
+print $bb eq $aa ? "ok 14\n": "not ok 14\n# aa=`$aa'\n# bb=`$bb'\n# b=`$b'\n";
 
 $a86 = \$a86;
 $a87 = \$a86;
@@ -152,17 +151,17 @@ print $bb eq $aa ? "ok 20\n": "not ok 20\n";
 
 $a9 = new Simple;
 $aa = freeze [$a9,89];
-#print "`$aa'\n";
+#print "#`$aa'\n";
 ($b) = thaw $aa;
 $bb = freeze $b;
 #print "$bb\n";
 print $bb eq $aa ? "ok 21\n": "not ok 21\n";
 
 $aa = freeze [$a9,$a9];
-#print "`$aa'\n";
+#print "#`$aa'\n";
 ($b) = thaw $aa;
 $bb = freeze $b;
-#print "`$bb'\n";
+#print "#`$bb'\n";
 print $bb eq $aa ? "ok 22\n": "not ok 22\n";
 
 $a10 = new Simple;
@@ -171,10 +170,39 @@ $aa = freeze [$a9,$a10];
 $bb = freeze $b;
 print $bb eq $aa ? "ok 23\n": "not ok 23\n# aa=`$aa'\n# bb=`$bb'\n";
 
-$aa = freeze [$a9,$a10,$a9,$a10];
+$a11 = [$a9,$a10,$a9,$a10];
+$aa = freeze $a11;
 ($b) = thaw $aa;
 $bb = freeze $b;
 # print STDERR "`$bb'\n";
 print $bb eq $aa ? "ok 24\n": "not ok 24\n# aa=`$aa'\n# bb=`$bb'\n";
 
-sub last {24}
+$a15 = {};
+$a16 = {};
+$a12 = [$a15,$a16,$a15,$a16];
+$a15->{add} = $a12;
+$a16->{add} = \$a12;
+
+$aa = freeze $a12;
+#print STDERR "#`$aa'\n";
+($b) = thaw $aa;
+$bb = freeze $b;
+#print STDERR "#`$bb'\n";
+print $bb eq $aa ? "ok 25\n": "not ok 25\n# aa=`$aa'\n# bb=`$bb'\n";
+
+$a15 = bless {}, 'Simple';
+$a16 = bless {}, 'Simple';
+$a12 = [$a15,$a16,$a15,$a16];
+$a15->{add} = $a12;
+$a16->{add} = \$a12;
+
+$aa = freeze $a12;
+#print STDERR "#`$aa'\n";
+($b) = thaw $aa;
+$bb = freeze $b;
+#print STDERR "#`$bb'\n";
+print $bb eq $aa ? "ok 26\n": "not ok 26\n# aa=`$aa'\n# bb=`$bb'\n";
+
+
+
+sub last {26}
