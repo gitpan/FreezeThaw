@@ -203,6 +203,12 @@ $bb = freeze $b;
 #print STDERR "#`$bb'\n";
 print $bb eq $aa ? "ok 26\n": "not ok 26\n# aa=`$aa'\n# bb=`$bb'\n";
 
+require Math::BigInt;
+$v = new Math::BigInt 5;
+$vf = freeze $v;
+($vv) = thaw $vf;
+$vi = $vv;
+$vi++;
+print "$vi" eq "+6" ? "ok 27\n": "not ok 27\n# vi=`$vi' vv=`$vv' vf=`$vf' v=`$v'\n";
 
-
-sub last {26}
+sub last {27}

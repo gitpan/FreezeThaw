@@ -270,6 +270,7 @@ use Exporter;
 
 @ISA = qw(Exporter);
 
+$VERSION = '0.4';
 use Carp;
 
 @EXPORT_OK = qw(freeze thaw cmpStr cmpStrHard safeFreeze);
@@ -354,7 +355,11 @@ sub freezeScalar {
   return &freezeString unless ref $_[0];
   my $ref = ref $_[0];
   if ($_[1] and $ref) {
-    $ref = $1 if "$_[0]" =~ /=(\w+)/;
+    if (defined &overload::StrVal) {
+      $ref = $1 if overload::StrVal($_[0]) =~ /=(\w+)/;
+    } else {
+      $ref = $1 if "$_[0]" =~ /=(\w+)/;
+    }
   }
   # Die if a) repeated prohibited, b) met, c) not explicitely requested to ingore.
   confess "Repeated reference met when prohibited" 

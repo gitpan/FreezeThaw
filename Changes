@@ -9,3 +9,5 @@ Version 0.2:
 	"Repeated" handled much cleaner now (basing on $secondpass).
 	Packages are stored in a more compact form.
 	Numbers are stored in a more compact form.
+Version 0.4:
+	Can handle overloaded objects.

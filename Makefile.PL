@@ -3,5 +3,5 @@ use ExtUtils::MakeMaker;
 # the contents of the Makefile that is written.
 WriteMakefile(
 	      NAME	=> 'FreezeThaw',
-	      VERSION	=> '0.3',
+	      VERSION_FROM => "FreezeThaw.pm",
 	     );
