@@ -222,11 +222,25 @@ transfer this to the $pre_object.
 
 =back
 
-=head1 BUGS/FEATURES
+=head1 BUGS and LIMITATIONS
 
 A lot of objects are blessed in some obscure packages by XSUB
 typemaps. It is not clear how to (automatically) prevent the
 C<UNIVERSAL> methods to be called for objects in these packages.
+
+The objects which can survive freeze()/thaw() cycle must also survive a
+change of a "member" to an equal member.  Say, after
+
+  $a = [a => 3];
+  $a->{b} = \ $a->{a};
+
+$a satisfies
+
+  $a->{b} == \ $a->{a}
+
+This property will be broken by freeze()/thaw(), but it is also broken by
+
+  $a->{a} = delete $a->{a};
 
 =cut
 
@@ -270,7 +284,7 @@ use Exporter;
 
 @ISA = qw(Exporter);
 
-$VERSION = '0.4';
+$VERSION = '0.41';
 use Carp;
 
 @EXPORT_OK = qw(freeze thaw cmpStr cmpStrHard safeFreeze);
@@ -354,28 +368,32 @@ sub freezeScalar {
   $string .= '_', return unless defined $_[0];
   return &freezeString unless ref $_[0];
   my $ref = ref $_[0];
+  my $str;
   if ($_[1] and $ref) {
     if (defined &overload::StrVal) {
-      $ref = $1 if overload::StrVal($_[0]) =~ /=(\w+)/;
+      $str = overload::StrVal($_[0]);
     } else {
-      $ref = $1 if "$_[0]" =~ /=(\w+)/;
+      $str = "$_[0]";
     }
+    $ref = $1 if $str =~ /=(\w+)/;
+  } else {
+    $str = "$_[0]";
   }
   # Die if a) repeated prohibited, b) met, c) not explicitely requested to ingore.
   confess "Repeated reference met when prohibited" 
-    if $norepeated && !$_[2] && defined $count{"$_[0]"};
+    if $norepeated && !$_[2] && defined $count{$str};
   if ($secondpass and !$_[2]) {
-    $string .= "<$address{$_[0]}|", return
-      if defined $count{"$_[0]"} and $count{"$_[0]"} > 1;
+    $string .= "<$address{$str}|", return
+      if defined $count{$str} and $count{$str} > 1;
   } elsif (!$_[2]) {
-    # $count{"$_[0]"} is defined if we have seen it on this pass.
-    $address{$_[0]} = @multiple, push(@multiple, $_[0]) 
-      if defined $count{"$_[0]"} and not exists $address{$_[0]};
+    # $count{$str} is defined if we have seen it on this pass.
+    $address{$str} = @multiple, push(@multiple, $_[0]) 
+      if defined $count{$str} and not exists $address{$str};
     # This is for debugging and shortening thrown-away output (also
     # internal data in arrays and hashes is not duplicated).
-    $string .= "<$address{$_[0]}|", ++$count{"$_[0]"}, return
-      if defined $count{"$_[0]"};
-    ++$count{"$_[0]"};
+    $string .= "<$address{$str}|", ++$count{$str}, return
+      if defined $count{$str};
+    ++$count{$str};
   }
   return &freezeArray if $ref eq ARRAY;
   return &freezeHash if $ref eq HASH;
@@ -390,7 +408,7 @@ sub freezeScalar {
   }
   if ($safe and (($ref eq CODE) or $ref eq GLOB)) {
     $unsafe = 1;
-    $saved{"$_[0]"} = $_[0] unless defined $saved{"$_[0]"};
+    $saved{$str} = $_[0] unless defined $saved{$str};
     $string .= "?";
     return &freezeString;
   }

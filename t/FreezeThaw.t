@@ -1,5 +1,3 @@
-# Tests 18, 19, 23 are faked out, since fail ;-).
-
 print "1.." . &last() . "\n";
 use Carp;
 $SIG{__WARN__} = sub { warn Carp::longmess(@_) };
@@ -131,13 +129,11 @@ print 0 == cmpStr($a85, $a86) ? "ok 15\n": "not ok 15\n";
 print 0 == cmpStr($a85, $a87) ? "ok 16\n": "not ok 16\n";
 print 0 != cmpStr($a85, $a88) ? "ok 17\n": "not ok 17\n";
 
-# Fake: XXXX
-print 0 != cmpStrHard($a85, $a87)
+print 0 != cmpStrHard($a85, $a86)
   ? "ok 18\n": "not ok 18\n";
 
 #print freeze(\@out,\@out), "\n";
 
-# Fake: XXXX
 print 0 == cmpStrHard(\@out, \@out)
   ? "ok 19\n": "not ok 19\n";
 

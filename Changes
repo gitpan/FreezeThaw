@@ -11,3 +11,8 @@ Version 0.2:
 	Numbers are stored in a more compact form.
 Version 0.4:
 	Can handle overloaded objects.
+Version 0.41:
+	Bug in detecting duplicated overloaded objects fixed.
+	(When Reissued:)
+	Remove wrong comments on faking out tests in t/*.
+	Add a POD section on limitations.
