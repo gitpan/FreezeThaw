@@ -16,3 +16,10 @@ Version 0.41:
 	(When Reissued:)
 	Remove wrong comments on faking out tests in t/*.
 	Add a POD section on limitations.
+Version 0.42:
+	Fix test for a change of string representation of Math::BigInt.
+	Support qr// objects (via UNIVERSAL, so if Regexp supports
+		(de)serialization methods, they will be used instead).
+	`use strict'-complient.
+Version 0.43:
+	Correct save/restore of overloaded values, including repeated refs.

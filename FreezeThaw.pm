@@ -122,14 +122,14 @@ to find out whether the current freeze was initiated by C<freeze> or
 C<safeFreeze> command. Analogous method for thaw $cooky returns
 whether the current thaw operation is considered safe (i.e., either
 does not contain cached elsewhere data, or comes from the same
-application). You can use 
+application). You can use
 
   $cooky->makeSafe;
 
 to prohibit cached data for the duration of the rest of freezing or
 thawing of current object.
 
-Two methods 
+Two methods
 
   $value = $cooky->repeatedOK;
   $cooky->noRepeated;		# Now repeated are prohibited
@@ -154,7 +154,7 @@ in the second it is C<instantiate>d.
 
 The restriction is that during the I<allocation> step you cannot use any
 reference to any Perl object that can be referenced from any other
-place. This restriction is applied since that object may not exist yet. 
+place. This restriction is applied since that object may not exist yet.
 
 Correspondingly, during I<instantiation> step the previosly I<allocated>
 object should be C<filled>, i.e., it can be changed in any way such
@@ -167,7 +167,7 @@ The methods are called like this:
   Package->Instantiate($pre_object_ref,$cooky);
 	# Converts into reference to blessed object
 
-The reverse operations are 
+The reverse operations are
 
   $object_ref->FreezeEmpty($cooky);
   $object_ref->FreezeInstance($cooky);
@@ -191,7 +191,7 @@ returns the value of C<{}> it uses, it will be preserved by the
 engine.
 
 The helper function C<FreezeThaw::copyContents> is provided for
-simplification of instantiation. The syntax is 
+simplification of instantiation. The syntax is
 
   FreezeThaw::copyContents $to, $from;
 
@@ -249,15 +249,15 @@ require 5.002;			# defined ref stuff...
 # Different line noise chars:
 #
 # $567|			next 567 chars form a scalar
-# 
+#
 # @34|			next 34 scalars form an array
-# 
+#
 # %34|			next 34 scalars form a hash
-# 
+#
 # ?			next scalar is a safe-stamp at beginning
-# 
+#
 # ?			next scalar is a stringified data
-# 
+#
 # !  repeated array follows (after a scalar denoting array $#),
 # (possibly?) followed by instantiation array. At beginning
 #
@@ -268,6 +268,8 @@ require 5.002;			# defined ref stuff...
 # &			stringified coderef follows
 #
 # \\			stringified defererenced data follows
+#
+# /			stringified REx follows
 #
 # >			stringified package name follows, then frozen data
 #
@@ -283,46 +285,96 @@ package FreezeThaw;
 use Exporter;
 
 @ISA = qw(Exporter);
+$VERSION = '0.43';
+@EXPORT_OK = qw(freeze thaw cmpStr cmpStrHard safeFreeze);
 
-$VERSION = '0.41';
+use strict;
 use Carp;
 
-@EXPORT_OK = qw(freeze thaw cmpStr cmpStrHard safeFreeze);
-$safe = 0;
-$lock = (reverse time) ^ $$ ^ \&freezeString; # To distingush processes
+my $lock = (reverse time) ^ $$ ^ \&freezeString; # To distingush processes
+
+use vars qw( @multiple
+	     %seen_packages
+	     $seen_packages
+	     %seen_packages
+	     %count
+	     %address
+	     $string
+	     $unsafe
+	     $noCache
+	     $cooky
+	     $secondpass
+	   ),			# Localized in freeze()
+	qw( $norepeated ),	# Localized in freezeScalar()
+	qw( $uninitOK ),	# Localized in thawScalar()
+	qw( @uninit ),		# Localized in thaw()
+	qw($safe);		# Localized in safeFreeze()
+my (%saved);
+
+my %Empty = ( ARRAY   => sub {[]}, HASH => sub {{}},
+	      SCALAR  => sub {my $undef; \$undef},
+	      REF     => sub {my $undef; \$undef},
+	      CODE    => 1,		# 1 means atomic
+	      GLOB    => 1,
+	      Regexp  => 0,
+	 );
+
 
 sub flushCache {$lock ^= rand; undef %saved;}
 
-sub getref {
+sub getref ($) {
   my $ref = ref $_[0];
-  if (defined $Empty{$ref}) {
-    $ref;
+  return $ref if not $ref or defined $Empty{$ref}; # Optimization _and_ Regexp
+  my $str;
+  if (defined &overload::StrVal) {
+    $str = overload::StrVal($_[0]);
   } else {
-    my $obj = shift;
-    ($ref) = ("$obj" =~ /=(.*)\(/);
-    $ref;
+    $str = "$_[0]";
   }
+  $ref = $1 if $str =~ /=(\w+)/;
+  $ref;
 }
 
 sub freezeString {$string .= "\$" . length($_[0]) . '|' . $_[0]}
 
 sub freezeNumber {$string .= $_[0] . '|'}
 
-sub thawString {	# Returns array of a string and offset of rest 
-  substr($string, $_[0]) =~ /^\$(\d+)\|/ or confess "Wrong format of frozen string: " . substr($string, $_[0]);
-  length($string) - $_[0] > length($1) + 1 + $1 
+sub freezeREx {$string .= '/' . length($_[0]) . '|' . $_[0]}
+
+sub thawString {	# Returns list: a string and offset of rest
+  substr($string, $_[0]) =~ /^\$(\d+)\|/
+    or confess "Wrong format of frozen string: " . substr($string, $_[0]);
+  length($string) - $_[0] > length($1) + 1 + $1
     or confess "Frozen string too short: `" .
       substr($string, $_[0]) . "', expect " . (length($1) + 2 + $1);
   (substr($string, $_[0] + length($1) + 2, $1), $_[0] + length($1) + 2 + $1);
 }
 
-sub thawNumber {	# Returns array of a number and offset of rest 
-  substr($string, $_[0]) =~ /^(\d+)\|/ or confess "Wrong format of frozen string: " . substr($string, $_[0]);
+sub thawNumber {	# Returns list: a number and offset of rest
+  substr($string, $_[0]) =~ /^(\d+)\|/
+    or confess "Wrong format of frozen string: " . substr($string, $_[0]);
   ($1, $_[0] + length($1) + 1);
 }
 
+sub _2rex ($);
+if (eval '"Regexp" eq ref qr/1/') {
+  eval 'sub _2rex ($) {my $r = shift; qr/$r/} 1' or die;
+} else {
+  eval 'sub _2rex ($) { shift } 1' or die;
+}
+
+sub thawREx {	# Returns list: a REx and offset of rest
+  substr($string, $_[0]) =~ m,^/(\d+)\|,
+    or confess "Wrong format of frozen REx: " . substr($string, $_[0]);
+  length($string) - $_[0] > length($1) + 1 + $1
+    or confess "Frozen string too short: `" .
+      substr($string, $_[0]) . "', expect " . (length($1) + 2 + $1);
+  (_2rex substr($string, $_[0] + length($1) + 2, $1),
+   $_[0] + length($1) + 2 + $1);
+}
+
 sub freezeArray {
-  $string .= '@' . @{$_[0]} . '|'; 
+  $string .= '@' . @{$_[0]} . '|';
   for (@{$_[0]}) {
     freezeScalar($_);
   }
@@ -369,7 +421,7 @@ sub freezeScalar {
   return &freezeString unless ref $_[0];
   my $ref = ref $_[0];
   my $str;
-  if ($_[1] and $ref) {
+  if ($_[1] and $ref) {			# Similar to getref()
     if (defined &overload::StrVal) {
       $str = overload::StrVal($_[0]);
     } else {
@@ -380,14 +432,14 @@ sub freezeScalar {
     $str = "$_[0]";
   }
   # Die if a) repeated prohibited, b) met, c) not explicitely requested to ingore.
-  confess "Repeated reference met when prohibited" 
+  confess "Repeated reference met when prohibited"
     if $norepeated && !$_[2] && defined $count{$str};
   if ($secondpass and !$_[2]) {
     $string .= "<$address{$str}|", return
       if defined $count{$str} and $count{$str} > 1;
   } elsif (!$_[2]) {
     # $count{$str} is defined if we have seen it on this pass.
-    $address{$str} = @multiple, push(@multiple, $_[0]) 
+    $address{$str} = @multiple, push(@multiple, $_[0])
       if defined $count{$str} and not exists $address{$str};
     # This is for debugging and shortening thrown-away output (also
     # internal data in arrays and hashes is not duplicated).
@@ -395,18 +447,19 @@ sub freezeScalar {
       if defined $count{$str};
     ++$count{$str};
   }
-  return &freezeArray if $ref eq ARRAY;
-  return &freezeHash if $ref eq HASH;
-  $string .= "*", return &freezeString 
-    if $ref eq GLOB and !$safe;
-  $string .= "&", return &freezeString 
-    if $ref eq CODE and !$safe;
-  $string .= '\\', return &freezeScalar( $ {shift()} ) 
-    if $ref eq REF or $ref eq SCALAR;
-  if ($noCache and (($ref eq CODE) or $ref eq GLOB)) {
+  return &freezeArray if $ref eq 'ARRAY';
+  return &freezeHash if $ref eq 'HASH';
+  return &freezeREx if $ref eq 'Regexp' and not defined ${$_[0]};
+  $string .= "*", return &freezeString
+    if $ref eq 'GLOB' and !$safe;
+  $string .= "&", return &freezeString
+    if $ref eq 'CODE' and !$safe;
+  $string .= '\\', return &freezeScalar( $ {shift()} )
+    if $ref eq 'REF' or $ref eq 'SCALAR';
+  if ($noCache and (($ref eq 'CODE') or $ref eq 'GLOB')) {
     confess "CODE and GLOB references prohibited now";
   }
-  if ($safe and (($ref eq CODE) or $ref eq GLOB)) {
+  if ($safe and (($ref eq 'CODE') or $ref eq 'GLOB')) {
     $unsafe = 1;
     $saved{$str} = $_[0] unless defined $saved{$str};
     $string .= "?";
@@ -452,6 +505,7 @@ sub thawScalar {
   if ($key eq "\$") {&thawString}
   elsif ($key eq '@') {&thawArray}
   elsif ($key eq '%') {&thawHash}
+  elsif ($key eq '/') {&thawREx}
   elsif ($key eq '\\') {
     my ($out,$rest) = &thawScalar( $_[0]+1 ) ;
     (\$out,$rest);
@@ -462,7 +516,7 @@ sub thawScalar {
   elsif ($key eq '?') {
     my ($address,$rest) = &thawScalar( $_[0]+1 ) ;
     confess "The saved data accessed in unprotected thaw" unless $unsafe;
-    confess "The saved data disappeared somewhere" 
+    confess "The saved data disappeared somewhere"
       unless defined $saved{$address};
     ($saved{$address},$rest);
   } elsif ($key eq '<') {
@@ -471,7 +525,7 @@ sub thawScalar {
     ($uninit[$off],$end);
   } elsif ($key eq '>' or $key eq '{' or $key eq '}') {
     my ($package,$rest) = &thawPackage( $_[0]+1 );
-    my $cooky = bless \$rest, FreezeThaw::TCooky;
+    my $cooky = bless \$rest, 'FreezeThaw::TCooky';
     local $uninitOK = $uninitOK;
     local $unsafe = $unsafe;
     if ($key eq '{') {
@@ -486,13 +540,8 @@ sub thawScalar {
     }
   } else {
     confess "Do not know how to thaw data with code `$key'";
-  } 
+  }
 }
-
-%Empty = ( ARRAY   => sub {[]}, HASH => sub {{}}, 
-	   SCALAR  => sub {my $undef; \$undef},
-	   REF     => sub {my $undef; \$undef},
-	   CODE    => 0, GLOB => 0); # 0 means atomic
 
 sub freezeEmpty {		# Takes a type, freezes ref to empty object
   my $e = $Empty{ref $_[0]};
@@ -500,12 +549,12 @@ sub freezeEmpty {		# Takes a type, freezes ref to empty object
     my $cache = &$e;
     freezeScalar $cache;
     $cache;
-  } elsif (defined $e) {
+  } elsif ($e) {
     my $cache = shift;
     freezeScalar($cache,1,1);	# Atomic
     $cache;
   } else {
-    $string .= "{"; 
+    $string .= "{";
     freezePackage ref $_[0];
     $_[0]->FreezeEmpty($cooky);
   }
@@ -522,7 +571,7 @@ sub freeze {
   local $string = 'FrT;';
   local $unsafe;
   local $noCache;
-  local $cooky = bless \$cooky, FreezeThaw::FCooky; # Just something fake
+  local $cooky = bless \$cooky, 'FreezeThaw::FCooky'; # Just something fake
   local $secondpass;
   freezeScalar(\@_);
   if (@multiple) {
@@ -556,14 +605,14 @@ sub freeze {
       }
     }
 #    for (keys %count) {
-#      $count{$_} = undef 
+#      $count{$_} = undef
 #	if !(defined $count{$_}) or $count{$_} <= 1; # As at start
 #    }
     # $string .= '@' . @multiple . '|';
     $secondpass = 1;
     for (@multiple) {
-      freezeScalar($_,0,1,1), next if defined $Empty{ref $_};
-      $string .= "}"; 
+      freezeScalar($_,0,1,1), next if $Empty{ref $_};
+      $string .= "}";
       freezePackage ref $_;
       $_->FreezeInstance($cooky);
     }
@@ -572,7 +621,7 @@ sub freeze {
   }
   return "FrT;?\$" . length($lock) . "|" . $lock . substr $string, 4
     if $unsafe;
-  $string;    
+  $string;
 }
 
 sub safeFreeze {
@@ -595,8 +644,11 @@ sub copyContents {  # Given two references, copies contents of the
     croak "Don't know how to copyContents of type `$ref'";
   }
   if (ref $second ne ref $first) { # Rebless
-    bless $first, ref $second;
+    # SvAMAGIC() is a property of a reference, not of a referent!
+    # Thus we cannot use $first here if $second was overloaded...
+    bless $_[0], ref $second;
   }
+  $first;
 }
 
 sub thaw {
@@ -614,7 +666,7 @@ sub thaw {
   if ($unsafe != $initoff) {
     my $key;
     ($key,$unsafe) = thawScalar($unsafe);
-    confess "The lock in frozen data does not match the key" 
+    confess "The lock in frozen data does not match the key"
       unless $key eq $lock;
   }
   local @multiple;
@@ -626,7 +678,7 @@ sub thaw {
   } else {
     ($res, $off) = thawScalar($repeated + $unsafe);
   }
-  my $cooky = bless \$off, FreezeThaw::TCooky;
+  my $cooky = bless \$off, 'FreezeThaw::TCooky';
   if ($repeated) {
     local @uninit;
     my $lst = $res;
@@ -666,7 +718,7 @@ sub cmpStrHard {
   local $string = 'FrT;';
   local $unsafe;
   local $noCache;
-  local $cooky = bless \$cooky, FreezeThaw::FCooky; # Just something fake
+  local $cooky = bless \$cooky, 'FreezeThaw::FCooky'; # Just something fake
   freezeScalar($_[0]);
   my %cnt1 = %count;
   freezeScalar($_[1]);
@@ -746,7 +798,7 @@ sub FreezeThaw::TCooky::makeSafe {
 }
 
 sub FreezeThaw::TCooky::ThawScalar {
-  my $self = shift; 
+  my $self = shift;
   my ($res,$off) = &thawScalar($$self);
   $$self = $off;
   $res;
@@ -765,13 +817,17 @@ sub UNIVERSAL::Thaw {
 
 sub UNIVERSAL::FreezeInstance {
   my($obj,$cooky) = @_;
+  return if (ref $obj and ref $obj eq 'Regexp' and not defined $$obj); # Regexp
   $obj->Freeze($cooky);
 }
 
 sub UNIVERSAL::Instantiate {
   my($package,$pre,$cooky) = @_;
+  return if $package eq 'Regexp';
   my $obj = $package->Thaw($cooky);
-  copyContents $pre, $obj;
+  # SvAMAGIC() is a property of a reference, not of a referent!
+  # Thus we cannot use $pre here if $obj was overloaded...
+  copyContents $_[1], $obj;
 }
 
 sub UNIVERSAL::Allocate {
@@ -781,14 +837,17 @@ sub UNIVERSAL::Allocate {
 
 sub UNIVERSAL::FreezeEmpty {
   my $obj = shift;
-  my ($type) = ("$obj" =~ /=(.*)\(/);
+  my $type = getref $obj;
   my $e = $Empty{$type};
   if (ref $e) {
     my $ref = &$e;
     freezeScalar $ref;
     $ref;			# Put into cache.
-  } elsif (defined $e) {
+  } elsif ($e) {
     freezeScalar($obj,1,1);	# Atomic
+    undef;
+  } elsif (defined $e and not defined $$obj) {	# Regexp
+    freezeREx($obj);
     undef;
   } else {
     die "Do not know how to FreezeEmpty $type";

@@ -204,7 +204,41 @@ $v = new Math::BigInt 5;
 $vf = freeze $v;
 ($vv) = thaw $vf;
 $vi = $vv;
-$vi++;
-print "$vi" eq "+6" ? "ok 27\n": "not ok 27\n# vi=`$vi' vv=`$vv' vf=`$vf' v=`$v'\n";
+$vi **= 100;
+print "# vi=`$vi' vv=`$vv' vf=`$vf' v=`$v'\nnot "
+    unless "$vi" =~ /^\+? 7888609052210118054117285652827862296732064351
+			  090230047702789306640625 \Z /x;
+print "ok 27\n";
 
-sub last {27}
+if (eval '"Regexp" eq ref qr/1/') {	# Have qr//
+  eval <<'EOE';
+    my $rex = qr/^abc/mi;
+    my $f = freeze [$rex, $rex, 11];
+    print "# '$f'\n";
+    my @o = thaw $f;
+    my @out = @{$o[0]};
+    print "# ", ref $out[0], "\nnot " unless ref $out[0] eq 'Regexp';
+    print "ok 28\n";
+    print "not " unless "xyz\nABC" =~ $out[0];
+    print "ok 29\n";
+    print "# ", ref $out[0], "\nnot " unless ref $out[1] eq 'Regexp';
+    print "ok 30\n";
+    print "not " unless "xyz\nABC" =~ $out[1];
+    print "ok 31\n";
+    print "not " unless @out == 3;
+    print "ok 32\n";
+    print "not " unless $out[2] == 11;
+    print "ok 33\n";
+    print "not " unless @o == 1;
+    print "ok 34\n";
+    print "not " unless ($out[1]+0) == ($out[1]+0);	# Addresses
+    print "ok 35\n";
+EOE
+  warn if $@;
+} else {
+  for (28..35) {
+    print "ok $_ # skipped: no qr// support\n";
+  }
+}
+
+sub last {35}

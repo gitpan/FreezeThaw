@@ -1,5 +1,6 @@
 FreezeThaw.pm
 t/FreezeThaw.t
+t/overload.t
 MANIFEST
 Makefile.PL
 Changes
