@@ -5,3 +5,4 @@ MANIFEST
 Makefile.PL
 Changes
 README
+META.yml                                 Module meta-data (added by MakeMaker)

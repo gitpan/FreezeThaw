@@ -23,3 +23,6 @@ Version 0.42:
 	`use strict'-complient.
 Version 0.43:
 	Correct save/restore of overloaded values, including repeated refs.
+Version 0.44:
+	Optimize thaw; apparently, with 5.8.8 \G in REx is not optimized;
+	  so implement along lines suggested by Bram [wizbit].

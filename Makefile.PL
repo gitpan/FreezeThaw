@@ -4,4 +4,5 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
 	      NAME	=> 'FreezeThaw',
 	      VERSION_FROM => "FreezeThaw.pm",
+              AUTHOR    => 'Ilya Zakharevich <ilyaz@cpan.org>',
 	     );

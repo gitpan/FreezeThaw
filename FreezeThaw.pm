@@ -285,7 +285,7 @@ package FreezeThaw;
 use Exporter;
 
 @ISA = qw(Exporter);
-$VERSION = '0.43';
+$VERSION = '0.44';
 @EXPORT_OK = qw(freeze thaw cmpStr cmpStrHard safeFreeze);
 
 use strict;
@@ -319,6 +319,18 @@ my %Empty = ( ARRAY   => sub {[]}, HASH => sub {{}},
 	      Regexp  => 0,
 	 );
 
+# This should better be done via pos() and \G, but apparently \G is not
+# optimized (bug in the REx optimizer???)
+BEGIN {
+  my $pointer_size   = length pack 'p', 0;
+  my $max_dig0 = 3*$pointer_size;	# 8bits take less than 3 decimals
+	# Now calculate the exact value:
+  my $max_pointer = sprintf "%.${max_dig0}g", 0x100**$pointer_size;
+  die "Panic" if $max_pointer =~ /\D/;
+  my $max_pointer_l = length $max_pointer;
+  warn "Max pointer_l=$max_pointer_l" if $ENV{FREEZE_THAW_WARN};
+  eval "sub max_strlen_l () {$max_pointer_l}; 1" or die;
+}
 
 sub flushCache {$lock ^= rand; undef %saved;}
 
@@ -342,7 +354,7 @@ sub freezeNumber {$string .= $_[0] . '|'}
 sub freezeREx {$string .= '/' . length($_[0]) . '|' . $_[0]}
 
 sub thawString {	# Returns list: a string and offset of rest
-  substr($string, $_[0]) =~ /^\$(\d+)\|/
+  substr($string, $_[0], 2+max_strlen_l) =~ /^\$(\d+)\|/
     or confess "Wrong format of frozen string: " . substr($string, $_[0]);
   length($string) - $_[0] > length($1) + 1 + $1
     or confess "Frozen string too short: `" .
@@ -351,7 +363,7 @@ sub thawString {	# Returns list: a string and offset of rest
 }
 
 sub thawNumber {	# Returns list: a number and offset of rest
-  substr($string, $_[0]) =~ /^(\d+)\|/
+  substr($string, $_[0], 1+max_strlen_l) =~ /^(\d+)\|/
     or confess "Wrong format of frozen string: " . substr($string, $_[0]);
   ($1, $_[0] + length($1) + 1);
 }
@@ -364,7 +376,7 @@ if (eval '"Regexp" eq ref qr/1/') {
 }
 
 sub thawREx {	# Returns list: a REx and offset of rest
-  substr($string, $_[0]) =~ m,^/(\d+)\|,
+  substr($string, $_[0], 2+max_strlen_l) =~ m,^/(\d+)\|,
     or confess "Wrong format of frozen REx: " . substr($string, $_[0]);
   length($string) - $_[0] > length($1) + 1 + $1
     or confess "Frozen string too short: `" .
@@ -381,7 +393,7 @@ sub freezeArray {
 }
 
 sub thawArray {
-  substr($string, $_[0]) =~ /^[\@%](\d+)\|/ # % To make it possible thaw hashes
+  substr($string, $_[0], 2+max_strlen_l) =~ /^[\@%](\d+)\|/ # % To make it possible thaw hashes
     or confess "Wrong format of frozen array: \n$_[0]";
   my $count = $1;
   my $off = $_[0] + 2 + length $count;
