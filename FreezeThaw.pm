@@ -285,7 +285,7 @@ package FreezeThaw;
 use Exporter;
 
 @ISA = qw(Exporter);
-$VERSION = '0.44';
+$VERSION = '0.45';
 @EXPORT_OK = qw(freeze thaw cmpStr cmpStrHard safeFreeze);
 
 use strict;
@@ -323,9 +323,10 @@ my %Empty = ( ARRAY   => sub {[]}, HASH => sub {{}},
 # optimized (bug in the REx optimizer???)
 BEGIN {
   my $pointer_size   = length pack 'p', 0;
-  my $max_dig0 = 3*$pointer_size;	# 8bits take less than 3 decimals
+  #my $max_dig0 = 3*$pointer_size;	# 8bits take less than 3 decimals
 	# Now calculate the exact value:
-  my $max_pointer = sprintf "%.${max_dig0}g", 0x100**$pointer_size;
+  #my $max_pointer = sprintf "%.${max_dig0}g", 0x100**$pointer_size;
+  my $max_pointer = sprintf "%.0f", 0x100**$pointer_size;
   die "Panic" if $max_pointer =~ /\D/;
   my $max_pointer_l = length $max_pointer;
   warn "Max pointer_l=$max_pointer_l" if $ENV{FREEZE_THAW_WARN};
