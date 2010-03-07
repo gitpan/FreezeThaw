@@ -210,7 +210,7 @@ print "# vi=`$vi' vv=`$vv' vf=`$vf' v=`$v'\nnot "
 			  090230047702789306640625 \Z /x;
 print "ok 27\n";
 
-if (eval '"Regexp" eq ref qr/1/') {	# Have qr//
+if (eval 'ref qr/1/') {		# Have qr//
   eval <<'EOE';
     my $rex = qr/^abc/mi;
     my $f = freeze [$rex, $rex, 11];

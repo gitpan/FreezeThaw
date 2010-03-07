@@ -30,3 +30,7 @@ Version 0.44:
 Version 0.45:
 	Maxpointer decimal width was wrongly calculated on 64bit machines with
 	  narrow NVs.
+Version 0.5
+	Support RExes of 5.11 and later (XXXX but not yet reblessed ones...)
+		(prototype by Andreas Koenig)
+

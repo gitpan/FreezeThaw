@@ -285,7 +285,7 @@ package FreezeThaw;
 use Exporter;
 
 @ISA = qw(Exporter);
-$VERSION = '0.45';
+$VERSION = '0.50';
 @EXPORT_OK = qw(freeze thaw cmpStr cmpStrHard safeFreeze);
 
 use strict;
@@ -309,6 +309,17 @@ use vars qw( @multiple
 	qw( $uninitOK ),	# Localized in thawScalar()
 	qw( @uninit ),		# Localized in thaw()
 	qw($safe);		# Localized in safeFreeze()
+
+BEGIN {				# allow optimization away
+  my $haveIsRex = defined &re::is_regexp;
+  my $RexIsREGEXP = ($haveIsRex and 'REGEXP' eq ref qr/1/); # First-class REX
+  eval <<EOE or die;
+sub haveIsRex () {$haveIsRex}
+sub RexIsREGEXP () {$RexIsREGEXP}
+1
+EOE
+}
+
 my (%saved);
 
 my %Empty = ( ARRAY   => sub {[]}, HASH => sub {{}},
@@ -316,7 +327,9 @@ my %Empty = ( ARRAY   => sub {[]}, HASH => sub {{}},
 	      REF     => sub {my $undef; \$undef},
 	      CODE    => 1,		# 1 means atomic
 	      GLOB    => 1,
-	      Regexp  => 0,
+	      (RexIsREGEXP
+		? (REGEXP => sub {my $qr = qr//})
+		: (Regexp => 0)),
 	 );
 
 # This should better be done via pos() and \G, but apparently \G is not
@@ -370,7 +383,7 @@ sub thawNumber {	# Returns list: a number and offset of rest
 }
 
 sub _2rex ($);
-if (eval '"Regexp" eq ref qr/1/') {
+if (eval 'ref qr/1/') {
   eval 'sub _2rex ($) {my $r = shift; qr/$r/} 1' or die;
 } else {
   eval 'sub _2rex ($) { shift } 1' or die;
@@ -462,7 +475,8 @@ sub freezeScalar {
   }
   return &freezeArray if $ref eq 'ARRAY';
   return &freezeHash if $ref eq 'HASH';
-  return &freezeREx if $ref eq 'Regexp' and not defined ${$_[0]};
+  return &freezeREx if haveIsRex ? re::is_regexp($_[0])
+				 : ($ref eq 'Regexp' and not defined ${$_[0]});
   $string .= "*", return &freezeString
     if $ref eq 'GLOB' and !$safe;
   $string .= "&", return &freezeString
@@ -653,6 +667,9 @@ sub copyContents {  # Given two references, copies contents of the
     @$first = @$second;
   } elsif ($ref eq 'HASH') {
     %$first = %$second;
+  } elsif (haveIsRex ? re::is_regexp($second)
+		     : ($ref eq 'Regexp' and not defined $$second)) {
+    $first = qr/$second/;
   } else {
     croak "Don't know how to copyContents of type `$ref'";
   }
@@ -830,13 +847,15 @@ sub UNIVERSAL::Thaw {
 
 sub UNIVERSAL::FreezeInstance {
   my($obj,$cooky) = @_;
-  return if (ref $obj and ref $obj eq 'Regexp' and not defined $$obj); # Regexp
+  return if !RexIsREGEXP		# Special-case non-1st-class RExes
+    and ref $obj and (haveIsRex ? re::is_regexp($obj)
+		      : (ref $obj eq 'Regexp' and not defined $$obj)); # Regexp
   $obj->Freeze($cooky);
 }
 
 sub UNIVERSAL::Instantiate {
   my($package,$pre,$cooky) = @_;
-  return if $package eq 'Regexp';
+  return if !RexIsREGEXP and $package eq 'Regexp';
   my $obj = $package->Thaw($cooky);
   # SvAMAGIC() is a property of a reference, not of a referent!
   # Thus we cannot use $pre here if $obj was overloaded...
@@ -859,7 +878,7 @@ sub UNIVERSAL::FreezeEmpty {
   } elsif ($e) {
     freezeScalar($obj,1,1);	# Atomic
     undef;
-  } elsif (defined $e and not defined $$obj) {	# Regexp
+  } elsif (!RexIsREGEXP and defined $e and not defined $$obj) {	# REx pre-5.11
     freezeREx($obj);
     undef;
   } else {
