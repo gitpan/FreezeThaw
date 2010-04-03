@@ -285,7 +285,7 @@ package FreezeThaw;
 use Exporter;
 
 @ISA = qw(Exporter);
-$VERSION = '0.50';
+$VERSION = '0.5001';
 @EXPORT_OK = qw(freeze thaw cmpStr cmpStrHard safeFreeze);
 
 use strict;
@@ -312,7 +312,8 @@ use vars qw( @multiple
 
 BEGIN {				# allow optimization away
   my $haveIsRex = defined &re::is_regexp;
-  my $RexIsREGEXP = ($haveIsRex and 'REGEXP' eq ref qr/1/); # First-class REX
+  my $RexIsREGEXP = ($haveIsRex and # 'REGEXP' eq ref qr/1/); # First-class REX
+		     $] >= 5.011); # Code like above requires Scalar::Utils::reftype
   eval <<EOE or die;
 sub haveIsRex () {$haveIsRex}
 sub RexIsREGEXP () {$RexIsREGEXP}
@@ -328,7 +329,7 @@ my %Empty = ( ARRAY   => sub {[]}, HASH => sub {{}},
 	      CODE    => 1,		# 1 means atomic
 	      GLOB    => 1,
 	      (RexIsREGEXP
-		? (REGEXP => sub {my $qr = qr//})
+		? (Regexp => sub {my $qr = qr//})
 		: (Regexp => 0)),
 	 );
 

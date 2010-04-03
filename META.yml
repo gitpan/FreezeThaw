@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               FreezeThaw
-version:            0.50
+version:            0.5001
 abstract:           ~
 author:
     - Ilya Zakharevich <ilyaz@cpan.org>
